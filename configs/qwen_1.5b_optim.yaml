@@ -1,0 +1,74 @@
+model:
+  name: "Qwen/Qwen2.5-1.5B-Instruct"
+  fallback_micro: "Qwen/Qwen2.5-0.5B-Instruct"
+  trust_remote_code: true
+
+hardware:
+  device: "cuda"  # Auto-selects CUDA if available, falls back to CPU
+  low_spec_cpu_threads: 4
+  max_ram_budget_mb: 2048  # Target budget: under 2GB RAM for low-spec devices
+
+compression:
+  # Strategy #6 from Apple CHI '24: Protect sensitive output & input projection layers
+  sensitive_layers_to_preserve:
+    - "lm_head"
+    - "model.embed_tokens"
+  
+  modes:
+    baseline_fp16:
+      dtype: "float16"
+      load_in_8bit: false
+      load_in_4bit: false
+      description: "Full precision baseline (FP16)"
+
+    int8_weight_dynamic:
+      dtype: "float16"
+      load_in_8bit: true
+      llm_int8_threshold: 6.0
+      description: "8-bit dynamic quantization with outlier thresholding"
+
+    int4_nf4_double_quant:
+      dtype: "bfloat16"
+      load_in_4bit: true
+      bnb_4bit_quant_type: "nf4"
+      bnb_4bit_use_double_quant: true
+      bnb_4bit_compute_dtype: "bfloat16"
+      description: "4-bit NormalFloat with Nested Double-Quantization (Maximum VRAM/RAM savings)"
+
+    int4_fp4:
+      dtype: "float16"
+      load_in_4bit: true
+      bnb_4bit_quant_type: "fp4"
+      bnb_4bit_use_double_quant: false
+      bnb_4bit_compute_dtype: "float16"
+      description: "4-bit Standard Floating Point quantization"
+
+continual_learning:
+  method: "qlora"  # Low-rank adaptation on frozen quantized base (Prevents Catastrophic Forgetting)
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  bias: "none"
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+evaluation:
+  test_prompts:
+    - task: "Reasoning & Math"
+      prompt: "A train leaves Chicago at 60 mph. An hour later, a second train leaves Chicago on a parallel track at 80 mph. How many hours after the second train leaves will it catch up to the first train? Explain step-by-step."
+    - task: "Code Generation"
+      prompt: "Write a high-performance Python function using memoization to compute the nth Fibonacci number, including type annotations and a docstring."
+    - task: "Instruction Following & Formatting"
+      prompt: "Summarize the three fundamental trade-offs in on-device machine learning in a JSON object with keys 'privacy', 'latency', and 'resource_constraints'."
+    - task: "Knowledge Extraction"
+      prompt: "What is catastrophic forgetting in neural networks, and how does parameter-efficient fine-tuning (like LoRA) mitigate it?"
+
+output:
+  results_dir: "results"
+  pareto_plot_path: "results/pareto_frontier.png"
